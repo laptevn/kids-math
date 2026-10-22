@@ -40,14 +40,19 @@ export function createWeakQuestions(
   count = 10,
   random: () => number = Math.random,
 ): Question[] {
-  const facts = weakFacts
+  const facts = [...new Set(weakFacts)]
     .map(parseQuestionKey)
     .filter((question): question is Question => question !== null)
 
-  if (!facts.length) return []
+  return shuffle(facts, random).slice(0, count)
+}
 
-  const result = Array.from({ length: count }, (_, index) => facts[index % facts.length])
-  return shuffle(result, random)
+export function appendRetryIfNeeded(
+  questions: Question[],
+  answeredQuestion: Question,
+  correct: boolean,
+): Question[] {
+  return correct ? questions : [...questions, answeredQuestion]
 }
 
 export function getWeakTables(answers: AnswerRecord[]): number[] {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Decorations, UnicornBadge } from './components/Decorations'
 import { Keypad } from './components/Keypad'
-import { createLearnQuestions, createTestQuestions, createWeakQuestions, getWeakTables, TABLES } from './game'
+import { appendRetryIfNeeded, createLearnQuestions, createTestQuestions, createWeakQuestions, getWeakTables, TABLES } from './game'
 import { addDailyMissionTime, DAILY_MISSION_MS, loadProgress, saveAnswer, saveTestResult, setFeedbackEnabled } from './storage'
 import type { AnswerRecord, Mode, ProgressData, Question } from './types'
 
@@ -122,9 +122,7 @@ export default function App() {
       elapsedMs: Date.now() - startedAt.current,
     }
     if (mode !== 'test') {
-      if (!isCorrect) {
-        setQuestions((current) => [...current, currentQuestion, currentQuestion])
-      }
+      setQuestions((current) => appendRetryIfNeeded(current, currentQuestion, isCorrect))
     }
     setAnswers((current) => [...current, record])
     setProgress((current) => saveAnswer(current, record, mode))
@@ -187,7 +185,7 @@ export default function App() {
               <span className="mode-icon">✦</span>
               <span>
                 <strong>Слабые места</strong>
-                <small>{progress.weakFacts.length ? '10 примеров' : 'Появятся после ошибок'}</small>
+                <small>{progress.weakFacts.length ? `Сложных примеров: ${Math.min(10, new Set(progress.weakFacts).size)}` : 'Появятся после ошибок'}</small>
               </span>
               <b>›</b>
             </button>
