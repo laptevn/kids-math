@@ -25,6 +25,31 @@ export function createTestQuestions(random: () => number = Math.random): Questio
   return shuffle(allQuestions, random).slice(0, 20)
 }
 
+export function questionKey({ left, right }: Question): string {
+  return `${left}x${right}`
+}
+
+export function parseQuestionKey(key: string): Question | null {
+  const match = /^(10|[1-9])x(10|[1-9])$/.exec(key)
+  if (!match) return null
+  return { left: Number(match[1]), right: Number(match[2]) }
+}
+
+export function createWeakQuestions(
+  weakFacts: string[],
+  count = 10,
+  random: () => number = Math.random,
+): Question[] {
+  const facts = weakFacts
+    .map(parseQuestionKey)
+    .filter((question): question is Question => question !== null)
+
+  if (!facts.length) return []
+
+  const result = Array.from({ length: count }, (_, index) => facts[index % facts.length])
+  return shuffle(result, random)
+}
+
 export function getWeakTables(answers: AnswerRecord[]): number[] {
   const mistakes = new Map<number, number>()
 
@@ -45,5 +70,19 @@ export function emptyProgress(): ProgressData {
       TABLES.map((table) => [String(table), { attempts: 0, correct: 0, totalTimeMs: 0 }]),
     ),
     tests: [],
+    weakFacts: [],
+    dailyMission: {
+      date: localDateKey(),
+      activeMs: 0,
+      completed: false,
+    },
+    feedbackEnabled: true,
   }
+}
+
+export function localDateKey(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }

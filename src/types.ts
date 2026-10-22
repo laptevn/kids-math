@@ -1,4 +1,4 @@
-export type Mode = 'learn' | 'test'
+export type Mode = 'learn' | 'test' | 'weak'
 
 export interface Question {
   left: number
@@ -28,4 +28,11 @@ export interface TestHistoryItem {
 export interface ProgressData {
   tables: Record<string, TableStats>
   tests: TestHistoryItem[]
+  weakFacts: string[]
+  dailyMission: {
+    date: string
+    activeMs: number
+    completed: boolean
+  }
+  feedbackEnabled: boolean
 }

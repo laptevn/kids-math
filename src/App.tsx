@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Decorations, UnicornBadge } from './components/Decorations'
 import { Keypad } from './components/Keypad'
-import { createLearnQuestions, createTestQuestions, getWeakTables, TABLES } from './game'
-import { loadProgress, saveRound } from './storage'
+import { createLearnQuestions, createTestQuestions, createWeakQuestions, getWeakTables, TABLES } from './game'
+import { addDailyMissionTime, DAILY_MISSION_MS, loadProgress, saveAnswer, saveTestResult, setFeedbackEnabled } from './storage'
 import type { AnswerRecord, Mode, ProgressData, Question } from './types'
 
 type Screen = 'home' | 'choose' | 'game' | 'result' | 'progress'
@@ -15,6 +15,37 @@ function accuracy(correct: number, attempts: number) {
   return attempts ? Math.round((correct / attempts) * 100) : 0
 }
 
+let audioContext: AudioContext | null = null
+
+function playFeedback(enabled: boolean, correct: boolean) {
+  if (!enabled) return
+
+  if ('vibrate' in navigator) {
+    navigator.vibrate(correct ? 35 : [55, 45, 55])
+  }
+
+  try {
+    audioContext ??= new AudioContext()
+    const now = audioContext.currentTime
+    const notes = correct ? [660, 880] : [260, 210]
+    notes.forEach((frequency, index) => {
+      const oscillator = audioContext!.createOscillator()
+      const gain = audioContext!.createGain()
+      const startsAt = now + index * 0.1
+      oscillator.type = correct ? 'sine' : 'triangle'
+      oscillator.frequency.value = frequency
+      gain.gain.setValueAtTime(0.0001, startsAt)
+      gain.gain.exponentialRampToValueAtTime(0.12, startsAt + 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.12)
+      oscillator.connect(gain).connect(audioContext!.destination)
+      oscillator.start(startsAt)
+      oscillator.stop(startsAt + 0.13)
+    })
+  } catch {
+    // Feedback is optional; unsupported audio must not block the game.
+  }
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [mode, setMode] = useState<Mode>('learn')
@@ -25,6 +56,8 @@ export default function App() {
   const [answers, setAnswers] = useState<AnswerRecord[]>([])
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null)
   const [progress, setProgress] = useState<ProgressData>(() => loadProgress())
+  const [missionCelebration, setMissionCelebration] = useState(false)
+  const missionWasCompleted = useRef(progress.dailyMission.completed)
   const startedAt = useRef(Date.now())
 
   const currentQuestion = questions[questionIndex]
@@ -37,10 +70,39 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (screen !== 'game') return
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        setProgress((current) => addDailyMissionTime(current, 1000))
+      }
+    }, 1000)
+
+    return () => window.clearInterval(timer)
+  }, [screen])
+
+  useEffect(() => {
+    if (!missionWasCompleted.current && progress.dailyMission.completed) {
+      setMissionCelebration(true)
+      const timer = window.setTimeout(() => setMissionCelebration(false), 4500)
+      missionWasCompleted.current = true
+      return () => window.clearTimeout(timer)
+    }
+    missionWasCompleted.current = progress.dailyMission.completed
+  }, [progress.dailyMission.completed])
+
   const beginRound = (nextMode: Mode, table = selectedTable) => {
+    const nextQuestions = nextMode === 'learn'
+      ? createLearnQuestions(table)
+      : nextMode === 'weak'
+        ? createWeakQuestions(progress.weakFacts, 10)
+        : createTestQuestions()
+
+    if (!nextQuestions.length) return
     setMode(nextMode)
     setSelectedTable(table)
-    setQuestions(nextMode === 'learn' ? createLearnQuestions(table) : createTestQuestions())
+    setQuestions(nextQuestions)
     setQuestionIndex(0)
     setAnswers([])
     setAnswer('')
@@ -59,14 +121,22 @@ export default function App() {
       correct: isCorrect,
       elapsedMs: Date.now() - startedAt.current,
     }
+    if (mode !== 'test') {
+      if (!isCorrect) {
+        setQuestions((current) => [...current, currentQuestion, currentQuestion])
+      }
+    }
     setAnswers((current) => [...current, record])
+    setProgress((current) => saveAnswer(current, record, mode))
+    playFeedback(progress.feedbackEnabled, isCorrect)
     setFeedback(isCorrect ? 'correct' : 'wrong')
   }
 
   const advance = () => {
     if (questionIndex === questions.length - 1) {
-      const nextProgress = saveRound(progress, answers, mode)
-      setProgress(nextProgress)
+      if (mode === 'test') {
+        setProgress((current) => saveTestResult(current, answers))
+      }
       setScreen('result')
       return
     }
@@ -78,10 +148,21 @@ export default function App() {
 
   if (screen === 'home') {
     const latest = progress.tests[0]
+    const missionPercent = Math.min(100, Math.round((progress.dailyMission.activeMs / DAILY_MISSION_MS) * 100))
+    const missionMinutes = Math.min(15, Math.floor(progress.dailyMission.activeMs / 60000))
     return (
       <main className="app-shell home-screen">
         <Decorations />
         <section className="hero-card">
+          <button
+            className={`feedback-toggle ${progress.feedbackEnabled ? 'enabled' : ''}`}
+            type="button"
+            aria-label={progress.feedbackEnabled ? 'Выключить звук и вибрацию' : 'Включить звук и вибрацию'}
+            aria-pressed={progress.feedbackEnabled}
+            onClick={() => setProgress((current) => setFeedbackEnabled(current, !current.feedbackEnabled))}
+          >
+            {progress.feedbackEnabled ? '🔊' : '🔇'}
+          </button>
           <div className="eyebrow">Волшебная математика</div>
           <UnicornBadge />
           <h1>Кристина считает</h1>
@@ -97,6 +178,29 @@ export default function App() {
               <span><strong>Проверить себя</strong><small>20 примеров</small></span>
               <b>›</b>
             </button>
+            <button
+              className="mode-card weak-card"
+              type="button"
+              onClick={() => beginRound('weak')}
+              disabled={!progress.weakFacts.length}
+            >
+              <span className="mode-icon">✦</span>
+              <span>
+                <strong>Слабые места</strong>
+                <small>{progress.weakFacts.length ? '10 примеров' : 'Появятся после ошибок'}</small>
+              </span>
+              <b>›</b>
+            </button>
+          </div>
+          <div className={`daily-mission ${progress.dailyMission.completed ? 'completed' : ''}`}>
+            <div className="mission-copy">
+              <span>{progress.dailyMission.completed ? '✓' : '☀'}</span>
+              <div>
+                <strong>Задание на сегодня</strong>
+                <small>{progress.dailyMission.completed ? 'Выполнено! 15 минут практики' : `${missionMinutes} из 15 минут`}</small>
+              </div>
+            </div>
+            <div className="mission-track"><span style={{ width: `${missionPercent}%` }} /></div>
           </div>
           <button className="progress-link" type="button" onClick={() => setScreen('progress')}>
             <span>♕</span>
@@ -144,11 +248,16 @@ export default function App() {
     return (
       <main className="app-shell game-screen">
         <Decorations />
+        {missionCelebration && (
+          <div className="mission-celebration" role="status">
+            ✨ Задание на сегодня выполнено! Продолжай, если хочется.
+          </div>
+        )}
         <section className="content-card game-card">
           <header className="game-header">
             <button className="back-button" type="button" onClick={() => setScreen('home')} aria-label="Закончить тренировку">×</button>
             <div className="game-title">
-              <strong>{mode === 'learn' ? `Таблица на ${selectedTable}` : 'Проверка знаний'}</strong>
+              <strong>{mode === 'learn' ? `Таблица на ${selectedTable}` : mode === 'weak' ? 'Слабые места' : 'Проверка знаний'}</strong>
               <span>{questionIndex + 1} из {questions.length}</span>
             </div>
             <div className="score-chip">★ {visibleCorrectCount}</div>
@@ -199,7 +308,11 @@ export default function App() {
               <div>{weakTables.map((table) => <span key={table}>× {table}</span>)}</div>
             </div>
           )}
-          <button className="primary-button" type="button" onClick={() => beginRound(mode, selectedTable)}>↻ Повторить</button>
+          {mode !== 'weak' || progress.weakFacts.length > 0 ? (
+            <button className="primary-button" type="button" onClick={() => beginRound(mode, selectedTable)}>↻ Повторить</button>
+          ) : (
+            <div className="all-fixed">✨ Все слабые места исправлены!</div>
+          )}
           <button className="secondary-button" type="button" onClick={() => setScreen('home')}>На главную</button>
         </section>
       </main>

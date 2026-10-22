@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createLearnQuestions, createTestQuestions, getWeakTables } from './game'
+import { createLearnQuestions, createTestQuestions, createWeakQuestions, getWeakTables } from './game'
 
 describe('question generation', () => {
   it('creates every fact for a selected table exactly once', () => {
@@ -13,6 +13,16 @@ describe('question generation', () => {
     const questions = createTestQuestions(() => 0.42)
     expect(questions).toHaveLength(20)
     expect(new Set(questions.map(({ left, right }) => `${left}x${right}`)).size).toBe(20)
+  })
+
+  it('creates a ten-question session from saved weak facts', () => {
+    const questions = createWeakQuestions(['7x8', '6x9'], 10, () => 0.5)
+    expect(questions).toHaveLength(10)
+    expect(questions.every(({ left, right }) => (left === 7 && right === 8) || (left === 6 && right === 9))).toBe(true)
+  })
+
+  it('ignores invalid saved weak facts', () => {
+    expect(createWeakQuestions(['not-a-question'])).toEqual([])
   })
 })
 
