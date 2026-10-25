@@ -263,14 +263,22 @@ export default function App() {
           <div className="progress-track"><span style={{ width: `${((questionIndex + (feedback ? 1 : 0)) / questions.length) * 100}%` }} /></div>
           <div className="question-area">
             <p className="prompt">Сколько получится?</p>
-            <div className="equation">
+            <div className={`equation ${feedback === 'wrong' ? 'has-correction' : ''}`}>
               <span>{currentQuestion.left}</span><i>×</i><span>{currentQuestion.right}</span><i>=</i>
               <span className={`answer-box ${feedback ?? ''}`}>{answer || '?'}</span>
+              {feedback === 'wrong' && (
+                <>
+                  <i className="correction-arrow" aria-hidden="true">→</i>
+                  <span className="answer-box corrected">{currentQuestion.left * currentQuestion.right}</span>
+                </>
+              )}
             </div>
             {feedback ? (
-              <div className={`feedback ${feedback}`} role="status">
-                <strong>{feedback === 'correct' ? 'Верно! ✨' : 'Почти получилось!'}</strong>
-                <span>{feedback === 'correct' ? 'Отличный ответ' : `Правильный ответ: ${currentQuestion.left * currentQuestion.right}`}</span>
+              <div className={`inline-feedback ${feedback}`} role="status">
+                <div className="feedback-message">
+                  <strong>{feedback === 'correct' ? 'Верно! ✨' : '✨ Почти!'}</strong>
+                  <span>{feedback === 'correct' ? 'Отличный ответ' : `Правильный ответ — ${currentQuestion.left * currentQuestion.right}`}</span>
+                </div>
                 <button type="button" onClick={advance}>{questionIndex === questions.length - 1 ? 'Узнать результат' : 'Дальше'} →</button>
               </div>
             ) : (
